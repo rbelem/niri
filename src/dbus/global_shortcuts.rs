@@ -141,6 +141,11 @@ impl GlobalShortcuts {
         configured_binds: &[Key],
         mod_key: ModKey,
     ) -> Vec<BoundShortcut> {
+        // The portal creates the session before it binds shortcuts.
+        if !self.sessions.contains_key(session_handle) {
+            return Vec::new();
+        }
+
         // Binding again replaces the previous set of the session.
         self.unbind_session(session_handle);
 
@@ -247,8 +252,11 @@ impl GlobalShortcuts {
             return false;
         };
 
-        self.active.insert(key_code, shortcut.clone());
-        self.emit_activated(&shortcut, timestamp_ms);
+        // The auto-repeat of a key that is already held down doesn't activate
+        // the shortcut again.
+        if self.active.insert(key_code, shortcut.clone()).is_none() {
+            self.emit_activated(&shortcut, timestamp_ms);
+        }
 
         true
     }
@@ -271,6 +279,10 @@ impl GlobalShortcuts {
                 self.binds.remove(&key);
             }
         }
+
+        // A shortcut that is held down is not bound anymore.
+        self.active
+            .retain(|_, shortcut| &shortcut.session != session_handle);
     }
 
     /// Emits the Activated signal for a shortcut.
@@ -472,8 +484,11 @@ impl GlobalShortcutsEmitter {
     }
 }
 
+/// The portal representation of a list of shortcuts.
+type ShortcutsValue = Vec<(String, HashMap<String, OwnedValue>)>;
+
 /// Builds the portal representation of a list of shortcuts.
-fn shortcuts_value(shortcuts: &[BoundShortcut]) -> Vec<(String, HashMap<String, OwnedValue>)> {
+fn shortcuts_value(shortcuts: &[BoundShortcut]) -> ShortcutsValue {
     shortcuts
         .iter()
         .map(|shortcut| {
@@ -789,7 +804,6 @@ mod tests {
         ));
     }
 
-    /// A private D-Bus daemon for the test.
     #[test]
     fn shortcut_activation() {
         let mut state = GlobalShortcuts::default();
@@ -836,8 +850,37 @@ mod tests {
 
         // The same key with other modifiers does nothing.
         assert!(!state.handle_key(Keycode::new(32), Some(Keysym::t), Modifiers::CTRL, true, 0,));
+
+        // The auto-repeat of the key doesn't activate the shortcut again, but
+        // the key stays suppressed.
+        assert!(state.handle_key(
+            key_code,
+            Some(Keysym::t),
+            Modifiers::CTRL | Modifiers::ALT,
+            true,
+            0,
+        ));
     }
 
+    #[test]
+    fn binding_without_a_session() {
+        let mut state = GlobalShortcuts::default();
+        let session = object_path("/org/freedesktop/portal/desktop/session/4");
+
+        // The portal creates the session first, so nothing is bound without one.
+        let bound = state.bind_shortcuts(
+            &session,
+            &[(
+                "shortcut".to_owned(),
+                shortcut_options("Do the thing", "CTRL+ALT+T"),
+            )],
+            &[],
+            ModKey::Super,
+        );
+        assert!(bound.is_empty());
+    }
+
+    /// A private D-Bus daemon for the test.
     struct TestBus {
         address: String,
         pid: u32,
@@ -942,6 +985,23 @@ mod tests {
         let session = object_path("/org/freedesktop/portal/desktop/session/1");
         let request = object_path("/org/freedesktop/portal/desktop/request/1");
 
+        // The backend sends its signals on the same connection.
+        state
+            .lock()
+            .unwrap()
+            .set_emitter(GlobalShortcutsEmitter::new(conn.clone()));
+
+        let proxy: zbus::blocking::Proxy<'_> = zbus::blocking::proxy::Builder::new(&client)
+            .destination(BUS_NAME)
+            .unwrap()
+            .path(OBJECT_PATH)
+            .unwrap()
+            .interface(INTERFACE_NAME)
+            .unwrap()
+            .build()
+            .unwrap();
+        let mut signals = proxy.receive_signal("ShortcutsChanged").unwrap();
+
         let reply = client
             .call_method(
                 Some(BUS_NAME),
@@ -982,6 +1042,26 @@ mod tests {
             reply.body().deserialize().unwrap();
         assert_eq!(response, RESPONSE_SUCCESS);
         assert!(results.contains_key("shortcuts"));
+
+        // The backend tells the client that the shortcuts of the session
+        // changed.
+        let signal = signals.next().unwrap();
+        let body = signal.body();
+        let (changed_session, changed): (zvariant::ObjectPath<'_>, ShortcutsValue) =
+            body.deserialize().unwrap();
+        assert_eq!(changed_session.as_str(), session.as_str());
+        assert_eq!(changed.len(), 1);
+        assert_eq!(changed[0].0, "shortcut");
+        assert_eq!(
+            changed[0]
+                .1
+                .get("trigger_description")
+                .unwrap()
+                .downcast_ref::<String>()
+                .map_err(|err| err.to_string())
+                .unwrap(),
+            "Ctrl+Alt+T",
+        );
 
         let reply = client
             .call_method(
