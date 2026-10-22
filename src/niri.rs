@@ -123,6 +123,8 @@ use crate::dbus::freedesktop_locale1::Locale1ToNiri;
 #[cfg(feature = "dbus")]
 use crate::dbus::freedesktop_login1::Login1ToNiri;
 #[cfg(feature = "dbus")]
+use crate::dbus::global_shortcuts::{configured_binds, GlobalShortcutsToNiri};
+#[cfg(feature = "dbus")]
 use crate::dbus::gnome_shell_introspect::{self, IntrospectToNiri, NiriToIntrospect};
 #[cfg(feature = "dbus")]
 use crate::dbus::gnome_shell_screenshot::{NiriToScreenshot, ScreenshotToNiri};
@@ -400,6 +402,8 @@ pub struct Niri {
 
     #[cfg(feature = "dbus")]
     pub dbus: Option<crate::dbus::DBusServers>,
+    #[cfg(feature = "dbus")]
+    pub global_shortcuts: crate::dbus::global_shortcuts::GlobalShortcuts,
     #[cfg(feature = "dbus")]
     pub a11y_keyboard_monitor: Option<crate::dbus::freedesktop_a11y::KeyboardMonitor>,
     #[cfg(feature = "dbus")]
@@ -2106,6 +2110,54 @@ impl State {
     }
 
     #[cfg(feature = "dbus")]
+    pub fn on_global_shortcuts_msg(&mut self, msg: GlobalShortcutsToNiri) {
+        match msg {
+            GlobalShortcutsToNiri::CreateSession {
+                session_handle,
+                app_id,
+                reply,
+            } => {
+                self.niri
+                    .global_shortcuts
+                    .create_session(session_handle, app_id);
+                let _ = reply.try_send(());
+            }
+            GlobalShortcutsToNiri::BindShortcuts {
+                session_handle,
+                shortcuts,
+                reply,
+            } => {
+                let config = self.niri.config.borrow();
+                let mod_key = self.backend.mod_key(&config);
+                let configured = configured_binds(&config);
+                let bound = self.niri.global_shortcuts.bind_shortcuts(
+                    &session_handle,
+                    &shortcuts,
+                    &configured,
+                    mod_key,
+                );
+                let _ = reply.try_send(bound);
+            }
+            GlobalShortcutsToNiri::ListShortcuts {
+                session_handle,
+                reply,
+            } => {
+                let bound = self.niri.global_shortcuts.list_shortcuts(&session_handle);
+                let _ = reply.try_send(bound);
+            }
+            GlobalShortcutsToNiri::ConfigureShortcuts {
+                session_handle,
+                reply,
+            } => {
+                self.niri
+                    .global_shortcuts
+                    .configure_shortcuts(&session_handle);
+                let _ = reply.try_send(());
+            }
+        }
+    }
+
+    #[cfg(feature = "dbus")]
     fn handle_take_screenshot(
         &mut self,
         to_screenshot: &async_channel::Sender<NiriToScreenshot>,
@@ -2611,6 +2663,8 @@ impl Niri {
 
             #[cfg(feature = "dbus")]
             dbus: None,
+            #[cfg(feature = "dbus")]
+            global_shortcuts: Default::default(),
             #[cfg(feature = "dbus")]
             a11y_keyboard_monitor: None,
             #[cfg(feature = "dbus")]

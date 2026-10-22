@@ -7,6 +7,7 @@ pub mod freedesktop_a11y;
 pub mod freedesktop_locale1;
 pub mod freedesktop_login1;
 pub mod freedesktop_screensaver;
+pub mod global_shortcuts;
 pub mod gnome_shell_introspect;
 pub mod gnome_shell_screenshot;
 pub mod mutter_display_config;
@@ -19,6 +20,7 @@ use mutter_screen_cast::ScreenCast;
 
 use self::freedesktop_a11y::KeyboardMonitor;
 use self::freedesktop_screensaver::ScreenSaver;
+use self::global_shortcuts::{GlobalShortcutsEmitter, GlobalShortcutsService};
 use self::gnome_shell_introspect::Introspect;
 use self::mutter_display_config::DisplayConfig;
 use self::mutter_service_channel::ServiceChannel;
@@ -39,6 +41,7 @@ pub struct DBusServers {
     pub conn_login1: Option<Connection>,
     pub conn_locale1: Option<Connection>,
     pub conn_keyboard_monitor: Option<Connection>,
+    pub conn_global_shortcuts: Option<Connection>,
 }
 
 impl DBusServers {
@@ -135,6 +138,22 @@ impl DBusServers {
             if let Some(x) = try_start(keyboard_monitor.clone()) {
                 dbus.conn_keyboard_monitor = Some(x);
                 niri.a11y_keyboard_monitor = Some(keyboard_monitor);
+            }
+
+            // The backend of the GlobalShortcuts portal. The portal itself is
+            // served by xdg-desktop-portal, which forwards the requests to us.
+            let (to_niri, from_global_shortcuts) = calloop::channel::channel();
+            niri.event_loop
+                .insert_source(from_global_shortcuts, move |event, _, state| match event {
+                    calloop::channel::Event::Msg(msg) => state.on_global_shortcuts_msg(msg),
+                    calloop::channel::Event::Closed => (),
+                })
+                .unwrap();
+            let global_shortcuts = GlobalShortcutsService::new(to_niri);
+            if let Some(conn) = try_start(global_shortcuts) {
+                niri.global_shortcuts
+                    .set_emitter(GlobalShortcutsEmitter::new(conn.clone()));
+                dbus.conn_global_shortcuts = Some(conn);
             }
         }
 
