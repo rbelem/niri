@@ -1,0 +1,8 @@
+# The compositor owns org.freedesktop.impl.portal.desktop.niri while it runs, so
+# this file only matters when the name is requested before niri has claimed it.
+# Starting a second compositor would be wrong, so the command fails right away
+# instead of launching niri. The command is looked up in PATH because the
+# compositor binary has no fixed path.
+[D-BUS Session Bus]
+Name=org.freedesktop.impl.portal.desktop.niri
+Exec=false

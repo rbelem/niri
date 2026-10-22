@@ -319,6 +319,17 @@ impl GlobalShortcuts {
     }
 }
 
+/// Returns the current time in milliseconds since the Unix epoch.
+///
+/// The portal protocol expects the timestamp of a shortcut activation to have
+/// millisecond granularity.
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
+
 /// Returns the description and the key combination of a requested shortcut.
 ///
 /// Returns `None` when the application did not provide a usable trigger.
@@ -779,6 +790,54 @@ mod tests {
     }
 
     /// A private D-Bus daemon for the test.
+    #[test]
+    fn shortcut_activation() {
+        let mut state = GlobalShortcuts::default();
+        let session = object_path("/org/freedesktop/portal/desktop/session/3");
+        state.create_session(session.clone(), "org.example.App".to_owned());
+        state.bind_shortcuts(
+            &session,
+            &[(
+                "shortcut".to_owned(),
+                shortcut_options("Do the thing", "CTRL+ALT+T"),
+            )],
+            &[],
+            ModKey::Super,
+        );
+
+        let key_code = Keycode::new(30);
+
+        // The press of the key activates the shortcut.
+        assert!(state.handle_key(
+            key_code,
+            Some(Keysym::t),
+            Modifiers::CTRL | Modifiers::ALT,
+            true,
+            0,
+        ));
+
+        // The release of the key deactivates it, but doesn't activate anything.
+        assert!(!state.handle_key(
+            key_code,
+            Some(Keysym::t),
+            Modifiers::CTRL | Modifiers::ALT,
+            false,
+            0,
+        ));
+
+        // Another key does nothing.
+        assert!(!state.handle_key(
+            Keycode::new(31),
+            Some(Keysym::a),
+            Modifiers::CTRL | Modifiers::ALT,
+            true,
+            0,
+        ));
+
+        // The same key with other modifiers does nothing.
+        assert!(!state.handle_key(Keycode::new(32), Some(Keysym::t), Modifiers::CTRL, true, 0,));
+    }
+
     struct TestBus {
         address: String,
         pid: u32,

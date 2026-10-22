@@ -479,6 +479,22 @@ impl State {
                     return FilterResult::Intercept(None);
                 }
 
+                // A portal global shortcut is global, so the key press must not
+                // reach the focused client. The portal binds never conflict
+                // with the configured binds, so at most one of them fires.
+                #[cfg(feature = "dbus")]
+                if this.niri.global_shortcuts.handle_key(
+                    key_code,
+                    raw,
+                    modifiers
+                        & (Modifiers::CTRL | Modifiers::SHIFT | Modifiers::ALT | Modifiers::SUPER),
+                    pressed,
+                    crate::dbus::global_shortcuts::now_ms(),
+                ) {
+                    this.niri.suppressed_keys.insert(key_code);
+                    return FilterResult::Intercept(None);
+                }
+
                 // Check if all modifiers were released while the MRU UI was open. If so, close the
                 // UI (which will also transfer the focus to the current MRU UI selection).
                 if this.niri.window_mru_ui.is_open() && !pressed && modifiers.is_empty() {

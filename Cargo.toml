@@ -171,6 +171,8 @@ assets = [
     { source = "resources/niri-session", dest = "/usr/bin/", mode = "755" },
     { source = "resources/niri.desktop", dest = "/usr/share/wayland-sessions/", mode = "644" },
     { source = "resources/niri-portals.conf", dest = "/usr/share/xdg-desktop-portal/", mode = "644" },
+    { source = "resources/niri.portal", dest = "/usr/share/xdg-desktop-portal/portals/", mode = "644" },
+    { source = "resources/org.freedesktop.impl.portal.desktop.niri.service", dest = "/usr/share/dbus-1/services/", mode = "644" },
     { source = "resources/niri.service", dest = "/usr/lib/systemd/user/", mode = "644" },
     { source = "resources/niri-shutdown.target", dest = "/usr/lib/systemd/user/", mode = "644" },
 ]
@@ -185,6 +187,8 @@ assets = [
     ["resources/niri-session", "usr/bin/", "755"],
     ["resources/niri.desktop", "/usr/share/wayland-sessions/", "644"],
     ["resources/niri-portals.conf", "/usr/share/xdg-desktop-portal/", "644"],
+    ["resources/niri.portal", "/usr/share/xdg-desktop-portal/portals/", "644"],
+    ["resources/org.freedesktop.impl.portal.desktop.niri.service", "/usr/share/dbus-1/services/", "644"],
     ["resources/niri.service", "/usr/lib/systemd/user/", "644"],
     ["resources/niri-shutdown.target", "/usr/lib/systemd/user/", "644"],
 ]
